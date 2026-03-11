@@ -39,9 +39,10 @@ def _patch_schema_for_openai(schema: dict) -> dict:
         patch(schema["schema"])
     return schema
 
-def generate_structured_response(prompt: str, response_format: type[BaseModel], system_prompt: str = "You are a senior data analyst.") -> BaseModel:
+def generate_structured_response(prompt: str, response_format: type[BaseModel], system_prompt: str = "You are a senior data analyst.", model: str = None) -> BaseModel:
     """
     Calls the AI service and maps the JSON response back to a Pydantic model.
+    Pass model= to override the provider default (e.g. 'o3' for deep analysis).
     """
     schema_dict = {
         "name": response_format.__name__,
@@ -54,7 +55,8 @@ def generate_structured_response(prompt: str, response_format: type[BaseModel], 
         prompt=prompt,
         schema=schema_dict,
         system_prompt=system_prompt,
-        max_tokens=4000
+        max_tokens=4000,
+        model=model,
     )
     
     content = response.content

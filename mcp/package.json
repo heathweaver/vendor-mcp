@@ -14,7 +14,9 @@
   "description": "",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "cors": "^2.8.5",
     "dotenv": "^17.3.1",
+    "express": "^4.21.2",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   },

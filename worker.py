@@ -19,7 +19,8 @@ from activities.generate_memo import generate_memo
 
 async def main():
     # Connect to local Temporal server
-    client = await Client.connect("localhost:7233")
+    # Connect to the live Temporal server on Synology
+    client = await Client.connect("ssc.one:7233")
 
     activities_list = [
         register_source_file,

@@ -1,27 +1,33 @@
-version: '3.8'
-
 services:
-  cassandra:
-    image: cassandra:4.0
-    ports:
-      - "9042:9042"
-
   temporal:
+    container_name: temporal
     image: temporalio/auto-setup:1.23.0
     ports:
       - "7233:7233"
     environment:
-      - DB=cassandra
-      - CASSANDRA_SEEDS=cassandra
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
-    depends_on:
-      - cassandra
+      - DB=postgresql
+      - DB_PORT=5433
+      - POSTGRES_USER=cv_heathweaver
+      - POSTGRES_PWD=cv_heathweaver
+      - POSTGRES_SEEDS=ssc.one
+      - DB_NAME=temporal
+      - VISIBILITY_DB_NAME=temporal_visibility
+      - SKIP_DB_CREATE=false
+    networks:
+      - temporal_network
 
   temporal-ui:
+    container_name: temporal-ui
     image: temporalio/ui:2.23.0
     ports:
-      - "8080:8080"
+      - "7234:8080"
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
     depends_on:
       - temporal
+    networks:
+      - temporal_network
+
+networks:
+  temporal_network:
+    driver: bridge

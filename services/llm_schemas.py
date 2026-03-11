@@ -19,7 +19,15 @@ class Opportunity(BaseModel):
 class OpportunitiesResponse(BaseModel):
     opportunities: List[Opportunity]
 
+class ImmediateAction(BaseModel):
+    priority: int = Field(description="1 = highest priority")
+    action: str = Field(description="Specific verb-first action, e.g. 'Renegotiate AWS contract'")
+    owner: str = Field(description="CFO, CPO, Procurement Lead, etc.")
+    savings_estimate: str = Field(description="Dollar estimate, e.g. '$420k–$700k'")
+    timeline: str = Field(description="e.g. '30 days', '60 days', '90 days'")
+
 class SummaryMemo(BaseModel):
-    executive_summary: str
-    key_points: List[str]
-    conclusion: str
+    headline: str = Field(description="One bold sentence: what can be saved and how fast. E.g. 'Vendor consolidation and renegotiation can reduce annual spend by $2.1M–$3.4M within 90 days.'")
+    executive_summary: str = Field(description="2-3 sentences. State the total spend reviewed, the core problem (concentration, fragmentation, tail), and the total savings opportunity. No hedging language.")
+    immediate_actions: List[ImmediateAction] = Field(description="4-6 specific actions sorted by priority. Each must name the specific vendor or category and include a dollar estimate.")
+    conclusion: str = Field(description="One sentence stating the consequence of inaction or the urgency.")

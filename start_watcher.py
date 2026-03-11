@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 async def main():
     # Connect to Temporal
-    temporal_client = await Client.connect("localhost:7233")
+    # Connect to the live Temporal server on Synology
+    temporal_client = await Client.connect("ssc.one:7233")
     
     base_dir = Path("./data")
     incoming_dir = base_dir / "incoming"
@@ -25,6 +26,7 @@ async def main():
         watch_dir=str(incoming_dir),
         processing_dir=str(processing_dir),
         error_dir=str(error_dir),
+        loop=asyncio.get_running_loop(),
         logger=logger
     )
     

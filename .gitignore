@@ -27,8 +27,12 @@ __pycache__/
 # Data & Outputs
 data/processing/
 data/error/
-data/outputs/*.pdf
-data/outputs/*.csv
+data/incoming/
+# data/outputs/*.pdf
+# data/outputs/*.csv
+
+# Compiled output
+mcp/dist/
 
 # IDEs
 .vscode/

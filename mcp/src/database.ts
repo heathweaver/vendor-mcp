@@ -22,7 +22,7 @@ export class DatabaseManager {
       console.error('Unexpected error on idle client', err);
     });
     
-    console.log(`Database configured: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
+    console.log(`Database configured: ${process.env.PGHOST}:${process.env.PGPORT}/${process.env.PGDATABASE}`);
   }
 
   async query(text: string, params?: any[]) {
