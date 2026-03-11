@@ -1,1 +1,36 @@
+# Environments
+.venv/
+env/
+venv/
+ENV/
+bin/
+
+# Secrets
 .env
+*.env
+secrets.json
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.log
+
+# Data & Outputs
+data/processing/
+data/error/
+data/outputs/*.pdf
+data/outputs/*.csv
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
