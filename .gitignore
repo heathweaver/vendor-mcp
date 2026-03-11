@@ -24,12 +24,14 @@ __pycache__/*
 .pytest_cache/
 *.log
 
-# Data & Outputs
+# Data & Outputs (private — never commit)
+data/incoming/
+data/outputs/
 data/processing/
 data/error/
-data/incoming/
-data/outputs/*.pdf
-data/outputs/*.csv
+
+# Docs (private — never commit)
+docs/
 
 # Compiled output
 mcp/dist/
@@ -38,13 +40,8 @@ mcp/dist/
 .vscode/
 .idea/
 .DS_Store
-data/outputs/memo_run_4_20260311_161107.pdf
+
+# Project-specific ignores
 .gitignore
-data/outputs/memo_run_4_20260311_162958.pdf
-data/outputs/vendor_classified_run_4.csv
-docs/executive_memo_draft.md
-docs/about_trilogy.md
 README.md
-services/ai/__pycache__/models.cpython-314.pyc
-docs/vendor_analysis_enriched.csv
-services/ai/__pycache__/models.cpython-314.pyc
+services/ai/__pycache__/
