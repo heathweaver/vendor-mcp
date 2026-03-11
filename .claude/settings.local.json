@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python run_pipeline.py \"data/incoming/Vendor Analysis Assessment – Heath Weaver - Vendor Analysis Assessment.csv\")",
+      "Bash(.venv/bin/python regenerate_memo.py)",
+      "Bash(.venv/bin/python regenerate_memo.py 4)",
+      "Bash(.venv/bin/python reclassify_and_export.py 4 --export-only)",
+      "Bash(.venv/bin/python -c \":*)"
+    ]
+  }
+}

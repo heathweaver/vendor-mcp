@@ -45,3 +45,6 @@ data/outputs/vendor_classified_run_4.csv
 docs/executive_memo_draft.md
 docs/about_trilogy.md
 README.md
+services/ai/__pycache__/models.cpython-314.pyc
+docs/vendor_analysis_enriched.csv
+services/ai/__pycache__/models.cpython-314.pyc
