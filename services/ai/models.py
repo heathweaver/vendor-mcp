@@ -13,6 +13,13 @@ from openai import OpenAI
 from .base import AIProvider, AIResponse, ProviderName
 
 
+_COMPLETION_TOKEN_MODELS = ("gpt-5", "o1", "o3", "o4")
+
+def _uses_completion_tokens(model: str) -> bool:
+    """Returns True for models that require max_completion_tokens instead of max_tokens."""
+    return any(model.startswith(prefix) for prefix in _COMPLETION_TOKEN_MODELS)
+
+
 class OpenAICompatibleProvider(AIProvider):
     """OpenAI-compatible provider with text and optional vision support."""
 
@@ -52,10 +59,11 @@ class OpenAICompatibleProvider(AIProvider):
                 "content": [{"type": "text", "text": prompt}],
             }
         )
+        token_kwarg = "max_completion_tokens" if _uses_completion_tokens(selected_model) else "max_tokens"
         request_args = {
             "model": selected_model,
             "messages": input_messages,
-            "max_tokens": max_tokens,
+            token_kwarg: max_tokens,
         }
         if self._supports_temperature(selected_model):
             request_args["temperature"] = temperature
@@ -95,10 +103,12 @@ class OpenAICompatibleProvider(AIProvider):
                 ],
             }
         )
+        _model = model or self.default_model
+        token_kwarg = "max_completion_tokens" if _uses_completion_tokens(_model) else "max_tokens"
         response = self.client.chat.completions.create(
-            model=model or self.default_model,
+            model=_model,
             messages=input_messages,
-            max_tokens=max_tokens,
+            **{token_kwarg: max_tokens},
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -108,7 +118,7 @@ class OpenAICompatibleProvider(AIProvider):
                 }
             },
         )
-        return self._build_response(response, model or self.default_model)
+        return self._build_response(response, _model)
 
     def complete_json(
         self,
@@ -134,10 +144,11 @@ class OpenAICompatibleProvider(AIProvider):
                 "content": [{"type": "text", "text": prompt}],
             }
         )
+        token_kwarg = "max_completion_tokens" if _uses_completion_tokens(selected_model) else "max_tokens"
         response = self.client.chat.completions.create(
             model=selected_model,
             messages=input_messages,
-            max_tokens=max_tokens,
+            **{token_kwarg: max_tokens},
             response_format={
                 "type": "json_schema",
                 "json_schema": {

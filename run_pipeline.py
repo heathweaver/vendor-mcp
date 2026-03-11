@@ -6,6 +6,7 @@ from activities.register_source_file import register_source_file
 from activities.ingest_file import ingest_file
 from activities.infer_and_apply_column_mapping import infer_and_apply_column_mapping
 from activities.clean_and_standardize import clean_and_standardize
+from activities.classify_vendors import classify_vendors
 from activities.collate_spend_views import collate_spend_views
 from activities.ai_qa_raw import ai_qa_raw
 from activities.analyze_opportunities import analyze_opportunities
@@ -43,11 +44,16 @@ async def run_pipeline(file_path_str: str):
 
     # 4. Standardize
     await clean_and_standardize(run_id)
-    print(f"[5/8] Canonicalized vendors and standardized categories")
+    print(f"[5/9] Canonicalized vendors and standardized categories")
 
-    # 5. Collate
+    # 5. Classify vendors
+    print("[6/9] Classifying vendors (department, description, recommendation)...")
+    cls_res = await classify_vendors(run_id)
+    print(f"      Classified {cls_res.get('classified_count', 0)} vendors")
+
+    # 6. Collate
     await collate_spend_views(run_id)
-    print(f"[6/8] Materialized spend views")
+    print(f"[7/9] Materialized spend views")
 
     # 6. AI QA
     print("[7/8] Running AI QA...")

@@ -12,22 +12,24 @@ class QAResponse(BaseModel):
 
 class Opportunity(BaseModel):
     target: str = Field(description="Vendor or category name")
-    action_type: str = Field(description="'renegotiate', 'consolidate', 'eliminate', or 'automate'")
-    rationale: str = Field(description="Brief explanation of why this action is recommended")
-    impact_estimate: str = Field(description="Estimated savings, e.g. '$10k' or 'High'")
+    action_type: str = Field(description="'keep', 'migrate', 'eliminate', or 'automate'")
+    recommendation: str = Field(description="Short action phrase, e.g. 'Migrate to Trilogy Salesforce'")
+    rationale: str = Field(description="Very short reason phrase, e.g. 'Duplicate CRM platform'")
+    impact_estimate: str = Field(description="Estimated annual savings or spend removed, e.g. '$120k' or '$0 while retained'")
+    implementation_note: str = Field(description="One sentence describing transition timing, dependency, or contract constraint")
 
 class OpportunitiesResponse(BaseModel):
     opportunities: List[Opportunity]
 
-class ImmediateAction(BaseModel):
-    priority: int = Field(description="1 = highest priority")
-    action: str = Field(description="Specific verb-first action, e.g. 'Renegotiate AWS contract'")
-    owner: str = Field(description="CFO, CPO, Procurement Lead, etc.")
-    savings_estimate: str = Field(description="Dollar estimate, e.g. '$420k–$700k'")
-    timeline: str = Field(description="e.g. '30 days', '60 days', '90 days'")
+class TopStrategicOpportunity(BaseModel):
+    title: str = Field(description="Short punchy title, 4-7 words, e.g. 'CRM Platform Consolidation' or 'Eliminate Facilities and Travel Overhead'")
+    explanation: str = Field(description="2-3 sentences. What this is, which specific vendors are involved, and why it is the highest-priority action.")
+    annual_savings_usd: str = Field(description="Estimated annual savings in USD, formatted as a dollar figure, e.g. '$350,000'")
 
 class SummaryMemo(BaseModel):
-    headline: str = Field(description="One bold sentence: what can be saved and how fast. E.g. 'Vendor consolidation and renegotiation can reduce annual spend by $2.1M–$3.4M within 90 days.'")
-    executive_summary: str = Field(description="2-3 sentences. State the total spend reviewed, the core problem (concentration, fragmentation, tail), and the total savings opportunity. No hedging language.")
-    immediate_actions: List[ImmediateAction] = Field(description="4-6 specific actions sorted by priority. Each must name the specific vendor or category and include a dollar estimate.")
-    conclusion: str = Field(description="One sentence stating the consequence of inaction or the urgency.")
+    subject: str = Field(description="Subject line, e.g. 'Vendor Integration Assessment — Recommended Actions'")
+    findings: str = Field(description="2-3 tight sentences. Cover total spend reviewed, vendor count, and the key breakdown by decision bucket (keep/migrate/eliminate/automate — counts and dollars). No hedging.")
+    recommended_actions: List[str] = Field(description="3-5 bullet points. Each bullet is one direct action: shut down a specific vendor category, migrate a named platform into Trilogy, or retain critical infra until cutover. Each bullet names the specific vendor or category. No preamble sentence.")
+    risks: str = Field(description="1-2 sentences on real risks only: contract notice periods, statutory filing obligations, or vendors embedded in the product stack. No generic boilerplate.")
+    conclusion: str = Field(description="One sentence. The cost of delay, citing a specific dollar figure from the data.")
+    top_opportunities: List[TopStrategicOpportunity] = Field(description="Exactly 3 highest-impact strategic opportunities ranked by financial and operational impact.")

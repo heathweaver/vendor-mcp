@@ -18,7 +18,7 @@ yarn-error.log*
 package-lock.json
 
 # Python
-__pycache__/
+__pycache__/*
 *.py[cod]
 *$py.class
 .pytest_cache/
@@ -28,8 +28,8 @@ __pycache__/
 data/processing/
 data/error/
 data/incoming/
-# data/outputs/*.pdf
-# data/outputs/*.csv
+data/outputs/*.pdf
+data/outputs/*.csv
 
 # Compiled output
 mcp/dist/
@@ -38,3 +38,10 @@ mcp/dist/
 .vscode/
 .idea/
 .DS_Store
+data/outputs/memo_run_4_20260311_161107.pdf
+.gitignore
+data/outputs/memo_run_4_20260311_162958.pdf
+data/outputs/vendor_classified_run_4.csv
+docs/executive_memo_draft.md
+docs/about_trilogy.md
+README.md

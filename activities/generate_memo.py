@@ -11,7 +11,7 @@ from services.analysis_engine import compute_analysis
 @activity.defn
 async def generate_memo(run_id: int) -> dict:
     """
-    Generates the final PDF memo using pre-computed analysis metrics and LLM synthesis.
+    Generates the final PDF memo using classified vendor decisions and LLM synthesis.
     """
     try:
         summary = compute_analysis(run_id)
@@ -24,27 +24,48 @@ async def generate_memo(run_id: int) -> dict:
         (run_id,), fetchall=True
     )
 
-    # Per-vendor per-category matrix — top 50 by spend to stay within LLM context
-    matrix = execute_query(
-        """SELECT vendor_name, category, SUM(spend_amount) as spend
-           FROM raw_spend_rows WHERE run_id = %s
-           GROUP BY vendor_name, category ORDER BY spend DESC LIMIT 50""",
-        (run_id,), fetchall=True
+    decision_summary = execute_query(
+        """
+        SELECT
+            COALESCE(nv.recommendation, 'ELIMINATE') AS decision,
+            COUNT(*) AS vendor_count,
+            COALESCE(SUM(sp.total_spend), 0) AS total_spend
+        FROM normalized_vendors nv
+        LEFT JOIN (
+            SELECT
+                nv.id AS vendor_id,
+                COALESCE(SUM(r.spend_amount), 0) AS total_spend
+            FROM normalized_vendors nv
+            LEFT JOIN raw_spend_rows r
+                ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+            WHERE nv.run_id = %s
+            GROUP BY nv.id
+        ) sp ON sp.vendor_id = nv.id
+        WHERE nv.run_id = %s
+        GROUP BY COALESCE(nv.recommendation, 'ELIMINATE')
+        ORDER BY total_spend DESC
+        """,
+        (run_id, run_id), fetchall=True
     )
+
     all_vendors = execute_query(
         "SELECT canonical_vendor, total_spend FROM vendor_spend_summary WHERE run_id = %s ORDER BY total_spend DESC LIMIT 20",
         (run_id,), fetchall=True
     )
-    all_cats = execute_query(
-        "SELECT category, total_spend, vendor_count FROM category_spend_summary WHERE run_id = %s ORDER BY total_spend DESC LIMIT 15",
+
+    # Vendor × department matrix for context (departments from classification)
+    matrix = execute_query(
+        """SELECT nv.canonical_name AS vendor_name, nv.department,
+                  COALESCE(SUM(r.spend_amount), 0) AS spend
+           FROM normalized_vendors nv
+           LEFT JOIN raw_spend_rows r ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+           WHERE nv.run_id = %s
+           GROUP BY nv.canonical_name, nv.department ORDER BY spend DESC LIMIT 50""",
         (run_id,), fetchall=True
     )
 
-    # Flag synthetic/uniform data
-    cat_names = [r["category"] for r in all_cats]
-    vendor_names = [r["canonical_vendor"] for r in all_vendors]
-    matrix_keys = {(r["vendor_name"], r["category"]) for r in matrix}
-    is_uniform = len(matrix_keys) == len(cat_names) * len(vendor_names)
+    # Not uniform since department is assigned by classification (not raw data patterns)
+    is_uniform = False
 
     context = {
         "data_note": (
@@ -54,7 +75,15 @@ async def generate_memo(run_id: int) -> dict:
         ) if is_uniform else "Real procurement data.",
         "total_spend": f"${summary.total_spend:,.0f}",
         "total_vendors": summary.total_vendors,
-        "vendors": [
+        "decision_summary": [
+            {
+                "decision": row["decision"],
+                "vendor_count": int(row["vendor_count"]),
+                "spend": f"${float(row['total_spend']):,.0f}",
+            }
+            for row in decision_summary
+        ],
+        "top_vendors": [
             {
                 "name": r["canonical_vendor"],
                 "spend": f"${float(r['total_spend']):,.0f}",
@@ -62,46 +91,47 @@ async def generate_memo(run_id: int) -> dict:
             }
             for r in all_vendors
         ],
-        "categories": [
-            {
-                "name": r["category"],
-                "spend": f"${float(r['total_spend']):,.0f}",
-                "vendor_count": r["vendor_count"],
-            }
-            for r in all_cats
-        ],
-        "vendor_category_matrix": [
-            {
-                "vendor": r["vendor_name"],
-                "category": r["category"],
-                "spend": f"${float(r['spend']):,.0f}",
-            }
-            for r in matrix
-        ],
         "opportunities": [dict(o) for o in opps],
     }
 
     context_str = json.dumps(context, indent=2)
 
     prompt = f"""
-You are writing a CEO/CFO procurement memo. Your output will be rendered into a formal document.
+You are the VP of Operations writing a 1-page executive memo to the CEO and CFO of an acquired company being integrated into Trilogy.
 
-MEMO STRUCTURE — follow this order exactly:
-1. SCOPE (headline): One sentence. What was reviewed: total spend, number of vendors, period if known.
-2. FINDINGS (executive_summary): 3–4 sentences. Lead with the single most important finding by dollar impact. Then the second finding. Then one sentence on what the data cannot tell us (be honest about limitations). Do NOT start with scope — the headline covers that.
-3. IMMEDIATE ACTIONS: Built from the opportunities list — leave immediate_actions empty, the table is rendered separately.
-4. CONCLUSION: One sentence on consequence of inaction. Must cite a specific dollar figure from the opportunities. Do NOT include the MCP server reference here — it goes in the footer.
+MEMO PURPOSE:
+Summarize the vendor analysis findings and give the leadership team clear direction on what to do next. They are busy. Do not restate obvious context. Do not hedge. Do not add padding.
 
-DATA QUALITY HANDLING:
-- data_note = "{context.get('data_note', 'Real procurement data.')}"
-- If data_note flags synthetic/uniform data: findings must include one sentence acknowledging the structural limitation (e.g. "vendor specialization cannot be assessed from this dataset"). Recommendations remain valid structurally even if dollar precision is limited.
-- If real data: write with full confidence, no hedging language.
+REQUIRED SECTIONS — fill each field:
 
-QUALITY RULES:
-- Every dollar figure in executive_summary must come from the opportunities or vendor list — label assumption-based figures as "[benchmark assumption]"
+subject: One line, e.g. "Vendor Integration Assessment — Recommended Actions"
+
+findings: 2–3 sentences covering the total spend reviewed, vendor count, and how that spend breaks down by integration decision (KEEP / CENTRALIZE / ELIMINATE / AUTOMATE — use the actual counts and dollar amounts from the data). This is factual, not editorial.
+
+recommended_actions: Return as a list of 3–5 bullet strings. Each bullet is one direct action item. Name the specific vendor or category. No preamble. Examples:
+- "Shut down all facilities and physical office vendors (Fero-Term, Cook Kitchen, etc.) — no remote-work justification"
+- "Migrate CRM off [vendor] into Trilogy Salesforce"
+- "Retain AWS and core infrastructure until product cutover is complete"
+
+risks: 1–2 sentences. Be specific: contract notice periods, any vendors with statutory filing obligations (legal, compliance), vendors that appear embedded in the product stack. Skip generic boilerplate.
+
+conclusion: One sentence. Quantify what is at stake if integration is delayed — use a real dollar figure from the data.
+
+top_opportunities: Exactly 3 strategic opportunities. Rules per opportunity:
+  #1: The single highest-spend vendor or category that should be acted on. Name the vendor, the action, and the dollar amount.
+  #2: Eliminate an entire physical/facilities/travel category. List ALL the specific vendor names in this category from the data, give the combined spend total, and explain why none of these have remote-work justification.
+  #3: Eliminate all advisory and consulting services. List ALL the specific advisory/consulting vendor names from the data, give the combined spend total, and explain why these should not survive integration into Trilogy.
+
+Each opportunity:
+- title: 4–7 words, action-oriented
+- explanation: 2–3 sentences. List the actual vendor names. State the action and why it's high-priority.
+- annual_savings_usd: The combined dollar figure for all vendors in this opportunity (from the data)
+
+RULES:
+- Every dollar figure must come from the data below
 - Do not use: "may", "could potentially", "might", "various suppliers", "some vendors"
 - Do not mention vendors not present in the data
-- The headline states scope, not savings — savings go in executive_summary
+- Write at C-level: direct, specific, no filler
 
 Data:
 {context_str}
@@ -121,38 +151,70 @@ Data:
             "transactions": r["transaction_count"],
         }
         for i, r in enumerate(all_vendors_full)
-    ]
+    ][:15]
 
-    # Per-category: find largest vendor by spend in that category
-    cat_rows = []
-    for r in all_cats:
-        top = execute_query(
-            """SELECT vendor_name, SUM(spend_amount) as s
-               FROM raw_spend_rows WHERE run_id=%s AND category=%s
-               GROUP BY vendor_name ORDER BY s DESC LIMIT 1""",
-            (run_id, r["category"]), fetchone=True
-        )
-        cat_spend = float(r["total_spend"])
-        top_vendor = top["vendor_name"] if top else "—"
-        top_pct = f"{float(top['s']) / cat_spend * 100:.0f}%" if top and cat_spend else "—"
-        cat_rows.append({
-            "category": r["category"],
-            "spend": f"${cat_spend:,.0f}",
-            "vendors": r["vendor_count"],
-            "top_vendor": top_vendor,
-            "top_pct": top_pct,
-        })
 
-    opportunity_rows = [
+    # Spend by department — replaces category breakdown (source data has no categories)
+    dept_rows_raw = execute_query(
+        """SELECT nv.department, COUNT(DISTINCT nv.id) AS vendor_count,
+                  COALESCE(SUM(r.spend_amount), 0) AS total_spend
+           FROM normalized_vendors nv
+           LEFT JOIN raw_spend_rows r ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+           WHERE nv.run_id = %s
+           GROUP BY nv.department
+           ORDER BY total_spend DESC""",
+        (run_id,), fetchall=True
+    )
+    department_rows = [
         {
-            "priority": i + 1,
-            "target": o["target"],
-            "action": o["action_type"],
-            "savings": o["impact_estimate"],
-            "rationale": o["rationale"],
+            "department": r["department"] or "G&A",
+            "vendor_count": int(r["vendor_count"]),
+            "spend": f"${float(r['total_spend']):,.0f}",
+            "pct": f"{float(r['total_spend']) / summary.total_spend * 100:.1f}%" if summary.total_spend else "0%",
         }
-        for i, o in enumerate(opps)
+        for r in dept_rows_raw
     ]
+
+    # All classified vendors — full list for the classified vendor table
+    classified_vendors_raw = execute_query(
+        """SELECT nv.canonical_name, nv.department, nv.description, nv.recommendation,
+                  COALESCE(SUM(r.spend_amount), 0) AS total_spend
+           FROM normalized_vendors nv
+           LEFT JOIN raw_spend_rows r
+               ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+           WHERE nv.run_id = %s
+           GROUP BY nv.canonical_name, nv.department, nv.description, nv.recommendation
+           ORDER BY total_spend DESC""",
+        (run_id,), fetchall=True
+    )
+    classified_vendor_rows = [
+        {
+            "vendor": r["canonical_name"].title(),
+            "department": r["department"] or "G&A",
+            "description": r["description"] or "",
+            "decision": r["recommendation"] or "ELIMINATE",
+            "spend": f"${float(r['total_spend']):,.0f}",
+        }
+        for r in classified_vendors_raw
+    ]
+
+    opportunity_rows = []
+    for i, o in enumerate(opps):
+        parts = [part.strip() for part in (o["rationale"] or "").split("|")]
+        recommendation = parts[0] if parts else ""
+        why = parts[1] if len(parts) > 1 else ""
+        note = parts[2] if len(parts) > 2 else ""
+        opportunity_rows.append(
+            {
+                "priority": i + 1,
+                "target": o["target"],
+                "action": o["action_type"],
+                "recommendation": recommendation,
+                "why": why,
+                "note": note,
+                "savings": o["impact_estimate"],
+            }
+        )
 
     try:
         memo_response: SummaryMemo = generate_structured_response(prompt, SummaryMemo, model="gpt-5.4")
@@ -170,27 +232,30 @@ Data:
         raw_total = float(raw_count["s"] or 0)
         raw_txns  = int(raw_count["c"] or 0)
 
-        # Vendor×category matrix
+        # Vendor × Department matrix (department from classification, not raw category)
         mx_rows = execute_query(
-            """SELECT vendor_name, category, SUM(spend_amount) as s, COUNT(*) as txns
-               FROM raw_spend_rows WHERE run_id=%s
-               GROUP BY vendor_name, category""",
+            """SELECT nv.canonical_name AS vendor_name, nv.department,
+                      COALESCE(SUM(r.spend_amount), 0) AS s
+               FROM normalized_vendors nv
+               LEFT JOIN raw_spend_rows r ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+               WHERE nv.run_id = %s
+               GROUP BY nv.canonical_name, nv.department""",
             (run_id,), fetchall=True
         )
-        mx_vendors = sorted({r["vendor_name"] for r in mx_rows})
-        mx_cats    = [r["category"] for r in all_cats]  # already sorted by spend desc
+        mx_vendors  = sorted({r["vendor_name"] for r in mx_rows})
+        mx_depts    = sorted({r["department"] for r in mx_rows if r["department"]})
 
         cells = {}
         for r in mx_rows:
-            cells.setdefault(r["vendor_name"], {})[r["category"]] = f"${float(r['s']):,.0f}"
+            cells.setdefault(r["vendor_name"], {})[r["department"]] = f"${float(r['s']):,.0f}"
 
         row_totals = {}
         for v in mx_vendors:
             row_totals[v] = f"${sum(float(r['s']) for r in mx_rows if r['vendor_name']==v):,.0f}"
 
         col_totals = {}
-        for c in mx_cats:
-            col_totals[c] = f"${sum(float(r['s']) for r in mx_rows if r['category']==c):,.0f}"
+        for d in mx_depts:
+            col_totals[d] = f"${sum(float(r['s']) for r in mx_rows if r['department']==d):,.0f}"
 
         grand_total_val = sum(float(r["s"]) for r in mx_rows)
 
@@ -199,29 +264,32 @@ Data:
         diff_str = f"${diff:,.2f}" if diff > 0.01 else "$0.00 ✓"
 
         reconciliation = [
-            {"item": "Raw rows ingested",        "value": f"{raw_txns:,}",                   "notes": "From raw_spend_rows table"},
-            {"item": "Raw spend total",           "value": f"${raw_total:,.2f}",              "notes": "Sum of all spend_amount"},
-            {"item": "Unique vendors (raw)",      "value": str(len(mx_vendors)),              "notes": "Before canonicalization"},
-            {"item": "Unique vendors (canonical)","value": str(summary.total_vendors),        "notes": "After name normalization"},
-            {"item": "Categories",                "value": str(len(mx_cats)),                 "notes": "From category_spend_summary"},
-            {"item": "Materialized spend total",  "value": f"${summary.total_spend:,.2f}",    "notes": "From vendor_spend_summary"},
-            {"item": "Reconciliation diff",       "value": diff_str,                          "notes": "raw − materialized", "highlight": True},
-            {"item": "Matrix cross-check",        "value": f"${grand_total_val:,.2f}",        "notes": "Sum of all matrix cells", "highlight": True},
+            {"item": "Raw rows ingested",         "value": f"{raw_txns:,}",                  "notes": "From raw_spend_rows table"},
+            {"item": "Raw spend total",            "value": f"${raw_total:,.2f}",             "notes": "Sum of all spend_amount"},
+            {"item": "Unique vendors (raw)",       "value": str(len(mx_vendors)),             "notes": "Before canonicalization"},
+            {"item": "Unique vendors (canonical)", "value": str(summary.total_vendors),       "notes": "After name normalization"},
+            {"item": "Departments",                "value": str(len(mx_depts)),               "notes": "From vendor classification"},
+            {"item": "Materialized spend total",   "value": f"${summary.total_spend:,.2f}",   "notes": "From vendor_spend_summary"},
+            {"item": "Reconciliation diff",        "value": diff_str,                         "notes": "raw − materialized", "highlight": True},
+            {"item": "Matrix cross-check",         "value": f"${grand_total_val:,.2f}",       "notes": "Sum of all matrix cells", "highlight": True},
         ]
 
-        # Top 10 transactions
+        # Top 10 vendor records by spend (with department from classification)
         top_txns_raw = execute_query(
-            """SELECT vendor_name, category, spend_amount, spend_date
-               FROM raw_spend_rows WHERE run_id=%s
+            """SELECT nv.canonical_name AS vendor_name, nv.department,
+                      COALESCE(SUM(r.spend_amount), 0) AS spend_amount
+               FROM normalized_vendors nv
+               LEFT JOIN raw_spend_rows r ON r.run_id = nv.run_id AND r.vendor_name = nv.original_name
+               WHERE nv.run_id = %s
+               GROUP BY nv.canonical_name, nv.department
                ORDER BY spend_amount DESC LIMIT 10""",
             (run_id,), fetchall=True
         )
         top_transactions = [
             {
-                "vendor":   r["vendor_name"],
-                "category": r["category"],
-                "amount":   f"${float(r['spend_amount']):,.2f}",
-                "date":     str(r["spend_date"])[:10] if r["spend_date"] else "—",
+                "vendor":     r["vendor_name"].title(),
+                "department": r["department"] or "—",
+                "amount":     f"${float(r['spend_amount']):,.2f}",
             }
             for r in top_txns_raw
         ]
@@ -232,7 +300,7 @@ Data:
             "reconciliation": reconciliation,
             "matrix": {
                 "vendors":     mx_vendors,
-                "categories":  mx_cats,
+                "categories":  mx_depts,
                 "cells":       cells,
                 "row_totals":  row_totals,
                 "col_totals":  col_totals,
@@ -241,16 +309,30 @@ Data:
             "top_transactions": top_transactions,
         }
 
+        top_opportunity_rows = [
+            {
+                "title": o.title,
+                "explanation": o.explanation,
+                "annual_savings_usd": o.annual_savings_usd,
+            }
+            for o in memo_response.top_opportunities
+        ]
+
         pdf_data = {
-            "company": "Executive Team",
             "total_spend": f"${summary.total_spend:,.0f}",
-            "headline": memo_response.headline,
-            "executive_summary": memo_response.executive_summary,
+            "total_vendors": summary.total_vendors,
+            "subject": memo_response.subject,
+            "findings": memo_response.findings,
+            "recommended_actions": memo_response.recommended_actions,
+            "risks": memo_response.risks,
             "conclusion": memo_response.conclusion,
             "data_note": context["data_note"] if "WARNING" in context["data_note"] else "",
+            "top_opportunity_rows": top_opportunity_rows,
+            "decision_rows": context["decision_summary"],
             "vendor_rows": vendor_rows,
-            "category_rows": cat_rows,
+            "department_rows": department_rows,
             "opportunity_rows": opportunity_rows,
+            "classified_vendor_rows": classified_vendor_rows,
             "audit": audit,
         }
 
@@ -264,20 +346,21 @@ Data:
 
         # Markdown for MCP get_memo tool
         opp_lines = "\n".join(
-            f"{r['priority']}. **[{r['action'].upper()}] {r['target']}** — {r['savings']}  \n   {r['rationale']}"
-            for r in opportunity_rows
+            f"{i+1}. **{o['title']}** — {o['annual_savings_usd']}  \n   {o['explanation']}"
+            for i, o in enumerate(top_opportunity_rows)
         )
         vendor_lines = "\n".join(
             f"| {r['rank']} | {r['vendor']} | {r['spend']} | {r['pct']} | {r['transactions']} |"
             for r in vendor_rows
         )
         markdown_content = (
-            f"# {memo_response.headline}\n\n"
-            f"{memo_response.executive_summary}\n\n"
+            f"# {memo_response.subject}\n\n"
+            f"{memo_response.findings}\n\n"
+            f"## Recommended Actions\n\n{memo_response.recommended_actions}\n\n"
+            f"## Top 3 Opportunities\n\n{opp_lines}\n\n"
             f"## Vendor Breakdown\n\n"
             f"| # | Vendor | Spend | % of Total | Txns |\n|---|--------|-------|------------|------|\n"
             f"{vendor_lines}\n\n"
-            f"## Savings Opportunities\n\n{opp_lines}\n\n"
             f"---\n{memo_response.conclusion}"
         )
 
