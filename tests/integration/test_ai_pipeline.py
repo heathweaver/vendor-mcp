@@ -12,7 +12,6 @@ from activities.analyze_opportunities import analyze_opportunities
 from activities.generate_memo import generate_memo
 
 os.environ['PGDATABASE'] = 'vendor_mcp_test'
-os.environ['PGUSER'] = os.environ.get('USER', 'postgres')
 
 @pytest.fixture(autouse=True)
 def clean_db():

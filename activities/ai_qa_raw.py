@@ -14,7 +14,7 @@ async def ai_qa_raw(run_id: int) -> dict:
     if not rows:
         return {"status": "skipped", "reason": "no data"}
         
-    data_str = json.dumps([dict(r) for r in rows], indent=2)
+    data_str = json.dumps([dict(r) for r in rows], indent=2, default=str)
     prompt = f"Review this raw spend data sample for obvious data quality issues (e.g. missing amounts, impossible dates, encoding errors):\n{data_str}"
     
     try:

@@ -9,7 +9,6 @@ from activities.clean_and_standardize import clean_and_standardize
 from activities.collate_spend_views import collate_spend_views
 
 os.environ['PGDATABASE'] = 'vendor_mcp_test'
-os.environ['PGUSER'] = os.environ.get('USER', 'postgres')
 
 @pytest.fixture(autouse=True)
 def clean_db():
